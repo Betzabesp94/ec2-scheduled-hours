@@ -49,20 +49,6 @@ export class Ec2ScheduledHoursStack extends cdk.Stack {
       minValue: 0,
     });
 
-    const deleteEbsOnTermination = new cdk.CfnParameter(
-      this,
-      "DeleteEbsOnTermination",
-      {
-        type: "String",
-        allowedValues: ["true", "false"],
-        default: String(
-          this.node.tryGetContext("deleteEbsOnTermination") ?? "false",
-        ),
-        description:
-          "If false, EBS volumes will be retained when instance is terminated",
-      },
-    );
-
     const assignPublicIp = new cdk.CfnParameter(this, "AssignPublicIp", {
       type: "String",
       allowedValues: ["true", "false"],
@@ -109,7 +95,6 @@ export class Ec2ScheduledHoursStack extends cdk.Stack {
       machineImage: machineImage.valueAsString,
       rootVolumeSizeGiB: rootVolumeSize.valueAsNumber,
       dataVolumeSizeGiB: dataVolumeSize.valueAsNumber,
-      deleteEbsOnTermination: deleteEbsOnTermination.valueAsString === "true",
       assignPublicIp: assignPublicIp.valueAsString === "true",
       mountDataVolume: mountDataVolume.valueAsString === "true",
       enableHibernation: enableHibernation.valueAsString === "true",

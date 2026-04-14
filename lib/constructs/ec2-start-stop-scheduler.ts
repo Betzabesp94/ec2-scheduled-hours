@@ -59,7 +59,7 @@ export class Ec2StartStopScheduler extends Construct {
       }),
     );
 
-    new scheduler.CfnSchedule(this, 'StartSchedule', {
+    const startSchedule = new scheduler.CfnSchedule(this, 'StartSchedule', {
       flexibleTimeWindow: { mode: 'OFF' },
       scheduleExpression: props.scheduleStartCron,
       scheduleExpressionTimezone,
@@ -70,7 +70,7 @@ export class Ec2StartStopScheduler extends Construct {
       },
     });
 
-    new scheduler.CfnSchedule(this, 'StopSchedule', {
+    const stopSchedule = new scheduler.CfnSchedule(this, 'StopSchedule', {
       flexibleTimeWindow: { mode: 'OFF' },
       scheduleExpression: props.scheduleStopCron,
       scheduleExpressionTimezone,
@@ -80,5 +80,16 @@ export class Ec2StartStopScheduler extends Construct {
         input: ec2Payload,
       },
     });
+
+    // Ensure destroy order: schedules must be deleted before roles.
+    startSchedule.node.addDependency(startRole);
+    stopSchedule.node.addDependency(stopRole);
+
+    // Enforce ephemeral stack: ensure CloudFormation deletes every resource it can.
+    for (const child of this.node.findAll()) {
+      if (child instanceof cdk.CfnResource) {
+        child.applyRemovalPolicy(cdk.RemovalPolicy.DESTROY);
+      }
+    }
   }
 }

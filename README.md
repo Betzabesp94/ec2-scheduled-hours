@@ -9,7 +9,7 @@ Infraestructura para una **instancia EC2 orientada a entornos de desarrollo/prue
   - `machineImage` configurable (default: `AL2023`)
   - Root volume **gp3** (default: **50 GiB**)
   - Segundo volumen de datos opcional **gp3** (default: **0** = deshabilitado; indica tamaño en GiB si lo activas)
-  - Por defecto los EBS **NO se eliminan** al terminar la instancia (configurable)
+  - Los volúmenes EBS (root y data si aplica) se **eliminan** al terminar la instancia (stack efímero)
   - Security Group **sin ingress** por defecto (solo egress)
   - **Sin IP pública** por defecto (configurable)
 - **SSM Session Manager**:
@@ -50,7 +50,6 @@ Parámetros soportados (con defaults):
 - `MachineImage` (default: dynamic reference a la AMI de Amazon Linux 2023 vía SSM public parameter). Puedes pasar un **AMI ID** (ej. `ami-...`) o un **dynamic reference** `{{resolve:ssm:...:1}}`.
 - `RootVolumeSize` (default `50`)
 - `DataVolumeSize` (default `0`; indica GiB del volumen de datos; mayor que `0` lo crea y opcionalmente lo monta)
-- `DeleteEbsOnTermination` (default `false`)
 - `AssignPublicIp` (default `false`)
 - `MountDataVolume` (default `true`)
 - `EnableHibernation` (default `false`)

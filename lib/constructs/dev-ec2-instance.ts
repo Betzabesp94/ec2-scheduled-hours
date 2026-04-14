@@ -12,7 +12,6 @@ export interface DevEc2InstanceProps {
   machineImage: string;
   rootVolumeSizeGiB: number;
   dataVolumeSizeGiB: number; // 0 disables
-  deleteEbsOnTermination: boolean;
   assignPublicIp: boolean;
   mountDataVolume: boolean;
   enableHibernation: boolean;
@@ -50,9 +49,10 @@ export class DevEc2Instance extends Construct {
     });
     endpointSg.addIngressRule(ec2.Peer.ipv4(this.vpc.vpcCidrBlock), ec2.Port.tcp(443));
 
-    this.vpc.addGatewayEndpoint('S3Endpoint', {
+    const s3Endpoint = this.vpc.addGatewayEndpoint('S3Endpoint', {
       service: ec2.GatewayVpcEndpointAwsService.S3,
     });
+    s3Endpoint.applyRemovalPolicy(cdk.RemovalPolicy.DESTROY);
 
     const interfaceServices: ec2.InterfaceVpcEndpointAwsService[] = [
       ec2.InterfaceVpcEndpointAwsService.SSM,
@@ -62,12 +62,13 @@ export class DevEc2Instance extends Construct {
     ];
 
     for (const svc of interfaceServices) {
-      this.vpc.addInterfaceEndpoint(`Endpoint${svc.shortName}`, {
+      const ep = this.vpc.addInterfaceEndpoint(`Endpoint${svc.shortName}`, {
         service: svc,
         privateDnsEnabled: true,
         securityGroups: [endpointSg],
         subnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       });
+      ep.applyRemovalPolicy(cdk.RemovalPolicy.DESTROY);
     }
 
     this.securityGroup = new ec2.SecurityGroup(this, 'InstanceSg', {
@@ -119,7 +120,7 @@ export class DevEc2Instance extends Construct {
         ebs: {
           volumeSize: props.rootVolumeSizeGiB,
           volumeType: 'gp3',
-          deleteOnTermination: props.deleteEbsOnTermination,
+          deleteOnTermination: true,
         },
       },
     ];
@@ -130,7 +131,7 @@ export class DevEc2Instance extends Construct {
         ebs: {
           volumeSize: props.dataVolumeSizeGiB,
           volumeType: 'gp3',
-          deleteOnTermination: props.deleteEbsOnTermination,
+          deleteOnTermination: true,
         },
       });
     }
@@ -157,6 +158,13 @@ export class DevEc2Instance extends Construct {
         { key: 'Name', value: cdk.Stack.of(this).stackName },
       ],
     });
+
+    // Enforce ephemeral stack: ensure CloudFormation deletes every resource it can.
+    for (const child of this.node.findAll()) {
+      if (child instanceof cdk.CfnResource) {
+        child.applyRemovalPolicy(cdk.RemovalPolicy.DESTROY);
+      }
+    }
   }
 }
 
