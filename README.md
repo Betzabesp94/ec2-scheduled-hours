@@ -7,7 +7,7 @@ Infraestructura para una **instancia EC2 orientada a entornos de desarrollo/prue
 - **EC2 (EBS-backed)**:
   - `instanceType` configurable (default: `t2.micro`)
   - `machineImage` configurable (default: `AL2023`)
-  - Root volume **gp3** (default: **50 GiB**)
+  - Root volume **gp3** (default: **20 GiB**; mínimo configurable **8 GiB**)
   - Segundo volumen de datos opcional **gp3** (default: **0** = deshabilitado; indica tamaño en GiB si lo activas)
   - Los volúmenes EBS (root y data si aplica) se **eliminan** al terminar la instancia (stack efímero)
   - Security Group **sin ingress** por defecto (solo egress)
@@ -17,8 +17,21 @@ Infraestructura para una **instancia EC2 orientada a entornos de desarrollo/prue
   - Conectividad a SSM **sin NAT** usando **VPC Endpoints** (SSM/EC2Messages/SSMMessages/Logs + S3 Gateway)
 - **Automatización Start/Stop**:
   - 2 schedules de **EventBridge Scheduler** con expresiones **cron** parametrizables (`ScheduleStartCron` / `ScheduleStopCron`)
-  - Cada schedule usa un **target universal** hacia el SDK de EC2 (`startInstances` / `stopInstances`) con payload JSON `{"InstanceIds":["<id>"]}`, donde el ID es el de la instancia creada por el stack (referencia de CloudFormation, no hardcodeada)
-  - 2 roles IAM asumidos por `scheduler.amazonaws.com`, con permisos mínimos: `ec2:StartInstances` o `ec2:StopInstances` únicamente sobre el ARN de esa instancia
+  - Zona horaria por defecto del scheduler: **`America/Argentina/Buenos_Aires`** (ver `lib/constructs/ec2-start-stop-scheduler.ts`)
+  - Cada schedule usa un **target universal** hacia el SDK de EC2 (`startInstances` / `stopInstances`) con payload JSON `{"InstanceIds":["<id>"]}` (ID de la instancia creada por el stack, referencia de CloudFormation)
+  - 2 roles IAM asumidos por `scheduler.amazonaws.com`, con permisos mínimos: `ec2:StartInstances` o `ec2:StopInstances` solo sobre el ARN de esa instancia
+
+## Cron por defecto (qué significa)
+
+Las expresiones usan el formato de **EventBridge Scheduler** (`cron(minuto hora día-mes mes día-semana año)`).
+
+| Parámetro           | Valor por defecto          | Significado (con la timezone del scheduler) |
+| ------------------- | -------------------------- | ------------------------------------------- |
+| `ScheduleStartCron` | `cron(0 9 ? * MON-FRI *)`  | Encender **lunes a viernes a las 09:00**    |
+| `ScheduleStopCron`  | `cron(0 19 ? * MON-FRI *)` | Apagar **lunes a viernes a las 19:00**      |
+
+Para otra zona horaria, amplía el construct `Ec2StartStopScheduler` para pasar `scheduleExpressionTimezone` o cámbialo en código.
+
 - **Outputs**:
   - Instance ID
   - Comando sugerido para conectarse por Session Manager
@@ -48,7 +61,7 @@ Parámetros soportados (con defaults):
 
 - `InstanceType` (default `t2.micro`)
 - `MachineImage` (default: dynamic reference a la AMI de Amazon Linux 2023 vía SSM public parameter). Puedes pasar un **AMI ID** (ej. `ami-...`) o un **dynamic reference** `{{resolve:ssm:...:1}}`.
-- `RootVolumeSize` (default `50`)
+- `RootVolumeSize` (default `20`)
 - `DataVolumeSize` (default `0`; indica GiB del volumen de datos; mayor que `0` lo crea y opcionalmente lo monta)
 - `AssignPublicIp` (default `false`)
 - `MountDataVolume` (default `true`)

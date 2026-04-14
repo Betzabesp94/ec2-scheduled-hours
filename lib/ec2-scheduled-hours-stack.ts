@@ -37,8 +37,8 @@ export class Ec2ScheduledHoursStack extends cdk.Stack {
 
     const rootVolumeSize = new cdk.CfnParameter(this, "RootVolumeSize", {
       type: "Number",
-      default: Number(this.node.tryGetContext("rootVolumeSize") ?? 50),
-      description: "Root EBS volume size in GiB",
+      default: Number(this.node.tryGetContext("rootVolumeSize") ?? 20),
+      description: "Root EBS volume size in GiB (default kept small for cost)",
       minValue: 8,
     });
 
