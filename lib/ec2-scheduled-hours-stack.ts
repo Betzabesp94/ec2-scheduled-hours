@@ -95,7 +95,7 @@ export class Ec2ScheduledHoursStack extends cdk.Stack {
       machineImage: machineImage.valueAsString,
       rootVolumeSizeGiB: rootVolumeSize.valueAsNumber,
       dataVolumeSizeGiB: dataVolumeSize.valueAsNumber,
-      assignPublicIp: assignPublicIp.valueAsString === "true",
+      assignPublicIp: assignPublicIp.valueAsString, // Pasar el string del parámetro, no el booleano
       mountDataVolume: mountDataVolume.valueAsString === "true",
       enableHibernation: enableHibernation.valueAsString === "true",
     });

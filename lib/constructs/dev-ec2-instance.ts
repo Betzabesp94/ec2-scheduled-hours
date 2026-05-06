@@ -12,11 +12,43 @@ export interface DevEc2InstanceProps {
   machineImage: string;
   rootVolumeSizeGiB: number;
   dataVolumeSizeGiB: number; // 0 disables
-  assignPublicIp: boolean;
+  /**
+   * Asignar IP pública a la instancia para conectividad a internet.
+   * IMPORTANTE: Si se establece en true:
+   * - La instancia se desplegará en una subred PÚBLICA con Internet Gateway
+   * - Se asignará una IP pública DINÁMICA automáticamente
+   * - La IP pública cambiará cada vez que la instancia se detenga/inicie
+   * - Para una IP fija, considerar usar Elastic IP (genera costo adicional si la instancia está detenida)
+   * 
+   * Si se establece en false:
+   * - La instancia se desplegará en una subred AISLADA sin acceso a internet directo
+   * - Solo tendrá acceso a servicios AWS vía VPC endpoints
+   * 
+   * Puede ser un booleano o un string de CloudFormation parameter.
+   */
+  assignPublicIp: boolean | string;
   mountDataVolume: boolean;
   enableHibernation: boolean;
 }
 
+/**
+ * DevEc2Instance - Instancia EC2 con configuración flexible de red
+ * 
+ * CONECTIVIDAD A INTERNET:
+ * Para que la instancia tenga acceso a internet, asegúrate de pasar:
+ *   assignPublicIp: true
+ * 
+ * Esto configurará automáticamente:
+ * ✓ Subred PÚBLICA con Internet Gateway
+ * ✓ Asignación de IP pública dinámica
+ * ✓ Security Group con egress permitido a 0.0.0.0/0
+ * ✓ Acceso completo para descargar desde repositorios externos (NVIDIA, apt, yum, etc.)
+ * 
+ * ARQUITECTURA DE RED:
+ * - VPC con subredes públicas (con IGW) y aisladas (sin internet)
+ * - VPC Endpoints para SSM, CloudWatch, S3 (acceso sin necesidad de internet)
+ * - Sin NAT Gateway para reducir costos
+ */
 export class DevEc2Instance extends Construct {
   public readonly vpc: ec2.Vpc;
   public readonly securityGroup: ec2.SecurityGroup;
@@ -26,17 +58,20 @@ export class DevEc2Instance extends Construct {
   constructor(scope: Construct, id: string, props: DevEc2InstanceProps) {
     super(scope, id);
 
+    // VPC con subredes públicas y aisladas
+    // Las subredes PUBLIC incluyen automáticamente un Internet Gateway
+    // que permite el tráfico saliente/entrante a internet
     this.vpc = new ec2.Vpc(this, 'Vpc', {
       maxAzs: 2,
-      natGateways: 0,
+      natGateways: 0, // Sin NAT Gateway para ahorrar costos
       subnetConfiguration: [
         {
           name: 'public',
-          subnetType: ec2.SubnetType.PUBLIC,
+          subnetType: ec2.SubnetType.PUBLIC, // Internet Gateway incluido automáticamente
         },
         {
           name: 'isolated',
-          subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+          subnetType: ec2.SubnetType.PRIVATE_ISOLATED, // Sin acceso a internet directo
         },
       ],
     });
@@ -71,9 +106,11 @@ export class DevEc2Instance extends Construct {
       ep.applyRemovalPolicy(cdk.RemovalPolicy.DESTROY);
     }
 
+    // Security Group de la instancia
+    // allowAllOutbound: true permite tráfico de salida a 0.0.0.0/0 (necesario para descargas de NVIDIA, apt, yum, etc.)
     this.securityGroup = new ec2.SecurityGroup(this, 'InstanceSg', {
       vpc: this.vpc,
-      allowAllOutbound: true,
+      allowAllOutbound: true, // Permite todo el tráfico egress hacia internet
       description: 'Basic SG: no inbound by default',
     });
 
@@ -91,11 +128,35 @@ export class DevEc2Instance extends Construct {
 
     const dataDeviceName = '/dev/xvdb';
 
-    const subnetSelection: ec2.SubnetSelection = props.assignPublicIp
-      ? { subnetType: ec2.SubnetType.PUBLIC }
-      : { subnetType: ec2.SubnetType.PRIVATE_ISOLATED };
+    // SELECCIÓN DE SUBRED: determina si la instancia tiene acceso a internet
+    // - PUBLIC: Instancia en subred pública con Internet Gateway, requiere IP pública asignada
+    // - PRIVATE_ISOLATED: Sin acceso directo a internet, solo via VPC endpoints
+    //
+    // Preparar ambos tipos de subredes
+    const publicSubnetIds = this.vpc.selectSubnets({ subnetType: ec2.SubnetType.PUBLIC }).subnetIds;
+    const isolatedSubnetIds = this.vpc.selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_ISOLATED }).subnetIds;
 
-    const subnetId = this.vpc.selectSubnets(subnetSelection).subnetIds[0];
+    // Determinar el subnetId según si assignPublicIp es un valor fijo o un parámetro CloudFormation
+    let subnetId: string;
+    let assignPublicIpValue: boolean | string;
+    let assignPublicIpCondition: cdk.CfnCondition | undefined;
+
+    if (typeof props.assignPublicIp === 'boolean') {
+      // Valor fijo: seleccionar en tiempo de síntesis
+      subnetId = props.assignPublicIp ? publicSubnetIds[0] : isolatedSubnetIds[0];
+      assignPublicIpValue = props.assignPublicIp;
+    } else {
+      // Es un string (token de CloudFormation): crear condición y seleccionar en runtime
+      assignPublicIpCondition = new cdk.CfnCondition(this, 'AssignPublicIpCondition', {
+        expression: cdk.Fn.conditionEquals(props.assignPublicIp, 'true'),
+      });
+      subnetId = cdk.Fn.conditionIf(
+        assignPublicIpCondition.logicalId,
+        publicSubnetIds[0],
+        isolatedSubnetIds[0],
+      ).toString();
+      assignPublicIpValue = props.assignPublicIp;
+    }
 
     const userData = ec2.UserData.forLinux();
     if (props.dataVolumeSizeGiB > 0 && props.mountDataVolume) {
@@ -136,6 +197,25 @@ export class DevEc2Instance extends Construct {
       });
     }
 
+    // ⚠️ ADVERTENCIA IMPORTANTE SOBRE IP PÚBLICA:
+    // 
+    // La configuración actual usa IP PÚBLICA DINÁMICA (associatePublicIpAddress: true)
+    // 
+    // IMPLICACIONES:
+    // - Cada vez que la instancia se DETIENE y se REINICIA, la IP pública CAMBIARÁ
+    // - Esto es normal y permite ahorrar costos al no tener Elastic IP
+    // - Si necesitas una IP FIJA que no cambie, considera usar Elastic IP:
+    //   * Ventaja: IP permanente incluso si detienes/inicias la instancia
+    //   * Desventaja: AWS cobra ~$0.005/hora (~$3.60/mes) cuando la instancia está DETENIDA
+    //   * La Elastic IP es GRATIS mientras la instancia esté CORRIENDO
+    // 
+    // Para añadir Elastic IP (opcional):
+    // const eip = new ec2.CfnEIP(this, 'ElasticIP', { domain: 'vpc' });
+    // new ec2.CfnEIPAssociation(this, 'EIPAssoc', {
+    //   eip: eip.ref,
+    //   instanceId: this.instance.ref,
+    // });
+    //
     this.instance = new ec2.CfnInstance(this, 'Instance', {
       imageId: props.machineImage,
       instanceType: props.instanceType,
@@ -150,7 +230,17 @@ export class DevEc2Instance extends Construct {
           deviceIndex: '0',
           subnetId,
           groupSet: [this.securityGroup.securityGroupId],
-          associatePublicIpAddress: props.assignPublicIp,
+          // CRÍTICO: associatePublicIpAddress debe ser true para conectividad a internet en subred pública
+          // Si assignPublicIpValue es un string (token), se resuelve en CloudFormation deployment time
+          associatePublicIpAddress: typeof assignPublicIpValue === 'boolean' 
+            ? assignPublicIpValue 
+            : assignPublicIpCondition 
+              ? cdk.Fn.conditionIf(
+                  assignPublicIpCondition.logicalId,
+                  true,
+                  false,
+                ) as any
+              : false,
         },
       ],
       userData: cdk.Fn.base64(userData.render()),
