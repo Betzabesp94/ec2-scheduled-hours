@@ -2,6 +2,10 @@
 
 Infraestructura para una **instancia EC2 orientada a entornos de desarrollo/pruebas** con **control de costos** mediante **encendido/apagado automático** vía **EventBridge Scheduler** invocando las APIs de EC2 **StartInstances** y **StopInstances** (targets universales, sin funciones intermedias), y **acceso seguro por SSM Session Manager** (sin llaves SSH por defecto).
 
+## Arquitectura
+
+![Diagrama de Arquitectura](docs/EC2Scheduled.jpg)
+
 ## Qué despliega
 
 - **EC2 (EBS-backed)**:
