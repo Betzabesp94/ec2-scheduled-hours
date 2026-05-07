@@ -94,5 +94,5 @@ npx cdk deploy \
 Tras desplegar, usa el output `SsmStartSessionCommand` o:
 
 ```bash
-aws ssm start-session --target <INSTANCE_ID> --region <REGION>
+aws ssm start-session --target <INSTANCE_ID>
 ```
